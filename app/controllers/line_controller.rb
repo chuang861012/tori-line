@@ -5,36 +5,12 @@ require 'open-uri'
 
 class LineController < ApplicationController
   def webhook
-    client = Line::Bot::Client.new do |config|
-      config.channel_secret = ENV['CHANNEL_SECRET']
-      config.channel_token = ENV['CHANNEL_ACCESS_TOKEN']
-    end
+    client = initClient
 
     reply_token = params['events'][0]['replyToken']
     message = params['events'][0]['message']['text']
 
-    response = nil
-
-    if message == '給點活路'
-      gallery = getGalleries.sample
-
-      text = {
-        type: 'text',
-        text: gallery[0]
-      }
-      image = {
-        type: 'image',
-        originalContentUrl: gallery[2],
-        previewImageUrl: gallery[2]
-      }
-
-      client.reply_message(reply_token, [text, image])
-    end
-
-    response = {
-      type: 'text',
-      text: message
-    }
+    response = handleMessageResponse(message)
 
     client.reply_message(reply_token, response)
 
@@ -43,19 +19,44 @@ class LineController < ApplicationController
 
   private
 
-  def getGalleries
-    response = open('https://e-hentai.org/',
-                    'Host' => 'e-hentai.org',
-                    'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36',
-                    'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                    'Cookie' => ENV['HENTAI_COOKIE'])
+  def initClient
+    # save client setup in session rather than reset it in every request
+    session[:client] ||= Line::Bot::Client.new do |config|
+      config.channel_secret = ENV['CHANNEL_SECRET']
+      config.channel_token = ENV['CHANNEL_ACCESS_TOKEN']
+    end
+  end
 
-    html = Nokogiri::HTML(response, nil, 'UTF-8')
+  def handleMessageResponse(message)
+    response = {
+      type: 'text',
+      text: "請輸入：(法典)(空格)(條號)\n目前支援：民法、刑法"
+    }
 
-    titles = html.xpath('//div[@class="id2"]/a/text()').map(&:inner_text)
-    links = html.xpath('//div[@class="id2"]/a/@href').map(&:inner_text)
-    thumbnail = html.xpath('//div[@class="id3"]/a/img/@src').map(&:inner_text)
+    if /^[民|刑]法 [0-9]+/.match?(message)
+      message = message.split(' ')
+      law_content = getLawContent(message[0], message[1])
 
-    titles.zip(links, thumbnail)
+      response[:text] = "#{message[0]} 第 #{message[1]} 條\n#{law_content}"
+    end
+
+    response
+  end
+
+  def getLawContent(_codex, num)
+    case _codex
+    when '民法' then pcode = 'B0000001'
+    when '刑法' then pcode = 'C0000001'
+    end
+
+    response = open("https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=#{pcode}",
+                    'User-Agent' => 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36')
+    law_page = Nokogiri::HTML(response, nil, 'UTF-8')
+
+    target_law = law_page.xpath("//div[@class='col-no']/a[text()='第 #{num} 條']/parent::*/following-sibling::div[contains(@class,col-data)]").map(&:inner_text)
+
+    target_law = target_law[0].split('。').join("。\n")
+
+    target_law || '查無此條號'
   end
 end
