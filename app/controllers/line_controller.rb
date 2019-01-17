@@ -21,7 +21,7 @@ class LineController < ApplicationController
 
   def initClient
     # save client setup in session rather than reset it in every request
-    session[:client] ||= Line::Bot::Client.new do |config|
+    Line::Bot::Client.new do |config|
       config.channel_secret = ENV['CHANNEL_SECRET']
       config.channel_token = ENV['CHANNEL_ACCESS_TOKEN']
     end
@@ -30,10 +30,10 @@ class LineController < ApplicationController
   def handleMessageResponse(message)
     response = {
       type: 'text',
-      text: "請輸入：(法典)(空格)(條號)\n目前支援：民法、刑法"
+      text: "請輸入：(法典)(空格)(條號)\n目前支援：憲法、民法、刑法"
     }
 
-    if /^[民|刑]法 [0-9]+/.match?(message)
+    if /^[憲|民|刑]法 [0-9]+/.match?(message)
       message = message.split(' ')
       law_content = getLawContent(message[0], message[1])
 
@@ -45,6 +45,7 @@ class LineController < ApplicationController
 
   def getLawContent(_codex, num)
     case _codex
+    when '憲法' then pcode = 'A0000001'
     when '民法' then pcode = 'B0000001'
     when '刑法' then pcode = 'C0000001'
     end
@@ -55,7 +56,7 @@ class LineController < ApplicationController
 
     target_law = law_page.xpath("//div[@class='col-no']/a[text()='第 #{num} 條']/parent::*/following-sibling::div[contains(@class,col-data)]").map(&:inner_text)
 
-    target_law = target_law[0].split('。').join("。\n")
+    target_law = target_law[0].split('。').join("。\n") + '。'
 
     target_law || '查無此條號'
   end
